@@ -9,6 +9,7 @@ Documentación generada a partir del análisis de los dos repositorios del siste
 
 ## Contenido
 
+0. ⭐ [**Plan maestro de implementación**](docs/00-plan-maestro-implementacion.md) — el paso a paso consolidado (7 entregas) de costeo real, código PRE y OCR de facturas, listo para ejecutar.
 1. [**Modelo actual del sistema**](docs/01-modelo-actual-farmy.md) — cómo está organizado Farmy hoy: arquitectura, módulos, procesos de negocio y seguridad, con diagramas.
 2. [**Propuesta de reestructuración**](docs/02-propuesta-reestructuracion.md) — hallazgos estructurales detectados y plan de cambios por fases.
 3. [**Mejora comercial: costeo real de cotizaciones**](docs/03-costeo-real-cotizaciones.md) — registrar el costo real de compra, adjuntar facturas y calcular la rentabilidad real de cotizaciones aprobadas.
