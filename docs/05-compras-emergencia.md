@@ -31,7 +31,7 @@ Un camino corto, **paralelo y controlado**, que se salta la ETL pero no los cont
 
 ```mermaid
 flowchart LR
-    A["🚨 Botón 'Compra de emergencia'<br/>en Gestor de Pedidos"] --> B["Mini-formulario (6 campos):<br/>producto · proveedor/tienda ·<br/>cantidad · precio · línea de negocio ·<br/>MOTIVO (obligatorio)"]
+    A["🚨 Botón 'Compra de emergencia'<br/>en Gestor de Pedidos"] --> B["Mini-formulario:<br/>producto · proveedor/tienda ·<br/>cantidad · precio · línea de negocio ·<br/>MOTIVO (obligatorio) ·<br/>+ sección CONVENIO"]
     B --> C["🏷️ Código PRE automático<br/>(misma tabla ProductoProvisional<br/>del doc 04)"]
     C --> D["📄 OC marcada ESURGENTE<br/>directa, sin pasar por<br/>el portafolio ETL"]
     D --> E["✅ Aprobación WhatsApp<br/>(flujo existente, con opción<br/>de 1 solo aprobador para<br/>emergencias — configurable)"]
@@ -53,8 +53,13 @@ flowchart LR
 3. **Marcada visualmente:** la OC lleva bandera `EsEmergencia` y chip 🚨 en todas las pantallas (gestor, estados, recepción), para que nadie la confunda con una compra de portafolio.
 4. **Aprobación no se elimina:** sigue el flujo WhatsApp existente (`PENDIENTE_1 → PENDIENTE_2 → APROBADA/RECHAZADA`), con una opción de configuración para que las emergencias requieran **un solo aprobador** (`WhatsApp:AprobadorEmergencia`), acelerando sin perder el control de 4 ojos.
 5. **Alerta de precio:** si el producto se parece a uno del portafolio (por código de barras o similitud de nombre), el sistema muestra el último precio conocido y semaforiza la diferencia — evita pagar 3× por afán sin darse cuenta. Si no hay referencia, se marca "sin referencia de precio".
-6. **El PRE se cierra al cerrar la OC** (recepción completa): puntual → `ELIMINADO` automático; recurrente → exige regularización (regla equivalente a la remisión en el flujo comercial del doc 04).
-7. **Tope configurable (opcional):** monto máximo por OC de emergencia y/o por mes (`Compras:TopeEmergenciaMes`); superarlo exige el flujo normal o doble aprobación.
+6. **Conexión con Convenio (sección del mini-formulario):** la compra de emergencia puede amarrarse a un convenio del módulo Convenios:
+   - Selector de convenio activo (opcional: "Sin convenio / stock general" también es válido).
+   - Si se selecciona convenio y el producto cruza con un homólogo/tarifa de ese convenio, el sistema muestra la **tarifa pactada** y semaforiza el precio de compra contra ella: 🟢 compra por debajo de la tarifa (hay margen) · 🟡 cerca de la tarifa · 🔴 compra por encima de la tarifa pactada (se vendería a pérdida) — exige confirmación explícita.
+   - El `IdConvenio` viaja en la OC de emergencia y queda disponible para reportes (qué convenios están generando compras de urgencia — señal de que ese producto debería entrar al portafolio).
+   - En la regularización, el convenio ya queda pre-llenado (un campo menos que digitar).
+7. **El PRE se cierra al cerrar la OC** (recepción completa): puntual → `ELIMINADO` automático; recurrente → exige regularización (regla equivalente a la remisión en el flujo comercial del doc 04).
+8. **Tope configurable (opcional):** monto máximo por OC de emergencia y/o por mes (`Compras:TopeEmergenciaMes`); superarlo exige el flujo normal o doble aprobación.
 
 ---
 
@@ -77,21 +82,22 @@ Cuando el producto **se va a seguir comprando**, hoy tocaría llenar la plantill
 
 | Cambio | Detalle |
 |---|---|
-| `OrdenCompraEncabezado` | + `EsEmergencia` (bit), `MotivoEmergencia` (nvarchar 400) |
+| `OrdenCompraEncabezado` | + `EsEmergencia` (bit), `MotivoEmergencia` (nvarchar 400), `IdConvenio?` (FK a Convenios — a qué convenio se amarra la compra) |
 | `ProductoProvisional` (ya existe en doc 04) | + `Origen` (COTIZACION \| COMPRA_EMERGENCIA) y `IdOrdenCompraEncabezado?` — la misma tabla sirve a los dos flujos |
-| `PorAprobar` | Las llaves de portafolio (`IdPrecio`, `IdHomologo`, `IdConvenio`) pasan a **nullables** solo para filas de emergencia — o alternativa sin tocar el esquema: la OC de emergencia **no pasa por PorAprobar** y nace directo en `OrdenCompraEncabezado` (recomendado: menos invasivo) |
+| `PorAprobar` | **Sin cambios** — decidido: la OC de emergencia **no pasa por PorAprobar**, nace directo en `OrdenCompraEncabezado` desde el mini-formulario |
 
 ### API
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| `POST` | `/api/OrdenCompra/emergencia` | Crea OC de emergencia: mini-formulario + genera PRE + dispara aprobación WhatsApp (1 o 2 niveles según config) |
+| `POST` | `/api/OrdenCompra/emergencia` | Crea OC de emergencia: mini-formulario (incluye `idConvenio?`) + genera PRE + dispara aprobación WhatsApp (1 o 2 niveles según config) |
+| `GET` | `/api/OrdenCompra/emergencia/tarifa-convenio?idConvenio=&producto=` | Devuelve la tarifa pactada del convenio para el producto (por homólogo/similitud) para semaforizar el precio antes de guardar |
 | `GET` | `/api/OrdenCompra?esEmergencia=true` | Filtro para el reporte |
 | `PUT` | `/api/ProductoProvisional/{id}/regularizar` | Genera la fila de plantilla pre-llenada (datos de recepción + OCR) y la deja lista para revisión |
 
 ### Front
 
-- Botón **"🚨 Compra de emergencia"** en Gestor de Pedidos (visible con `COMPRA_EMERGENCIA`) → mini-formulario de 6 campos.
+- Botón **"🚨 Compra de emergencia"** en Gestor de Pedidos (visible con `COMPRA_EMERGENCIA`) → mini-formulario: producto, proveedor/tienda, cantidad, precio, línea de negocio, motivo obligatorio + **sección Convenio** (selector de convenio activo con la tarifa pactada visible y semáforo de precio en vivo).
 - Chip 🚨 en las grids de OC, estados y recepción.
 - Al cerrar la OC recurrente: pantalla de regularización pre-llenada (revisar → confirmar → codificar).
 - **Reporte de emergencias** (pestaña en Órdenes de Compra o tarjeta en el Dashboard): cuántas, por cuánto, por quién, motivos — para que el canal rápido no se vuelva el canal normal.
@@ -104,8 +110,8 @@ Cuando el producto **se va a seguir comprando**, hoy tocaría llenar la plantill
 
 - [ ] 8.1 BD: `EsEmergencia` + `MotivoEmergencia` en OC; `Origen` en `ProductoProvisional`
 - [ ] 8.2 `POST /api/OrdenCompra/emergencia` + acción `COMPRA_EMERGENCIA` + aprobación WhatsApp configurable a 1 nivel
-- [ ] 8.3 Botón + mini-formulario en Gestor de Pedidos; chips 🚨 en las grids
-- [ ] 8.4 Alerta/semáforo de precio contra el portafolio cuando hay producto similar
+- [ ] 8.3 Botón + mini-formulario en Gestor de Pedidos (con sección Convenio); chips 🚨 en las grids
+- [ ] 8.4 Alerta/semáforo de precio contra el portafolio y contra la **tarifa del convenio** seleccionado (endpoint `tarifa-convenio`)
 - [ ] 8.5 Cierre de OC = cierre del PRE (eliminar o regularizar); regularización pre-llenada con datos de recepción + OCR
 - [ ] 8.6 Reporte de compras de emergencia
 
@@ -113,9 +119,16 @@ Cuando el producto **se va a seguir comprando**, hoy tocaría llenar la plantill
 
 ---
 
-## 7. Decisiones por confirmar
+## 7. Decisiones
+
+**Cerradas ✅**
+
+- La OC de emergencia **nace directa** desde el mini-formulario del Gestor de Pedidos (no pasa por `PorAprobar`; ese esquema no se toca).
+- El mini-formulario incluye la **sección Convenio**: selector de convenio activo, tarifa pactada visible y semáforo del precio de compra contra la tarifa; el `IdConvenio` viaja en la OC y queda pre-llenado en la regularización.
+
+**Por confirmar:**
 
 1. ¿Aprobación de emergencia con **1 solo aprobador** o mantener los 2 niveles? (Propuesta: 1, configurable.)
 2. ¿Tope de monto por OC de emergencia y/o mensual? (Propuesta: sí, configurable, empezar sin bloquear — solo alertar.)
-3. ¿La OC de emergencia nace directo (recomendado) o pasa por `PorAprobar` con llaves nullables?
-4. ¿La regularización es obligatoria al cerrar la OC (bloqueante) o puede quedar pendiente con recordatorio? (Propuesta: bloqueante solo si se marcó "se seguirá comprando".)
+3. ¿La regularización es obligatoria al cerrar la OC (bloqueante) o puede quedar pendiente con recordatorio? (Propuesta: bloqueante solo si se marcó "se seguirá comprando".)
+4. ¿El convenio es obligatorio u opcional en el mini-formulario? (Propuesta: opcional, con "Sin convenio / stock general" como valor válido.)
