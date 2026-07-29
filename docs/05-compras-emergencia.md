@@ -58,6 +58,11 @@ flowchart LR
    - Si se selecciona convenio y el producto cruza con un homólogo/tarifa de ese convenio, el sistema muestra la **tarifa pactada** y semaforiza el precio de compra contra ella: 🟢 compra por debajo de la tarifa (hay margen) · 🟡 cerca de la tarifa · 🔴 compra por encima de la tarifa pactada (se vendería a pérdida) — exige confirmación explícita.
    - El `IdConvenio` viaja en la OC de emergencia y queda disponible para reportes (qué convenios están generando compras de urgencia — señal de que ese producto debería entrar al portafolio).
    - En la regularización, el convenio ya queda pre-llenado (un campo menos que digitar).
+   - **Verificación de pérdida SIEMPRE, con o sin convenio.** El sistema determina el precio de venta de referencia así, en orden:
+     1. **Con convenio** → tarifa pactada del convenio (vía homólogo/tarifario).
+     2. **Sin convenio** → tarifa del tarifario general (Homólogos) si el producto cruza, o el último precio de venta conocido del portafolio.
+     3. **Sin ninguna referencia** → el formulario exige digitar el **precio de venta esperado** (campo obligatorio en ese caso).
+     Con esa referencia calcula el margen (venta − compra) y semaforiza: 🟢 hay margen · 🟡 margen mínimo (tolerancia config) · 🔴 **pérdida** (compra ≥ venta de referencia) — la 🔴 exige confirmación explícita con observación para poder guardar. Ninguna compra de emergencia se registra sin saber si da pérdida o no.
 7. **El PRE se cierra al cerrar la OC** (recepción completa): puntual → `ELIMINADO` automático; recurrente → exige regularización (regla equivalente a la remisión en el flujo comercial del doc 04).
 8. **Tope configurable (opcional):** monto máximo por OC de emergencia y/o por mes (`Compras:TopeEmergenciaMes`); superarlo exige el flujo normal o doble aprobación.
 
