@@ -32,12 +32,13 @@ flowchart TB
     I -->|"Cruces dudosos"| J["👤 Usuario confirma<br/>los matches"]
     I -->|"Todo cruza"| K
     J --> K["💲 Costeo real pre-llenado<br/>+ SEMÁFORO por línea<br/>🟢 🟡 🔴"]
-    K --> L{"Cierre del código PRE<br/>(paso obligatorio)"}
-    L -->|"Se seguirá manejando"| M["✅ CODIFICADO<br/>se crea la codificación real<br/>(flujo existente: Por confirmar → Confirmado)<br/>y se guarda el mapeo PRE → definitivo"]
-    L -->|"Compra puntual"| N["🔒 CERRADO<br/>el PRE queda en histórico,<br/>inutilizable en documentos nuevos"]
+    K --> L["🚚 Paso a REMISIÓN"]
+    L --> M{"¿El producto se<br/>seguirá manejando?"}
+    M -->|"Sí"| N["✅ Debe estar CODIFICADO<br/>antes de remisionar<br/>(validación bloqueante):<br/>la remisión sale con el<br/>código definitivo"]
+    M -->|"Compra puntual"| O["🗑️ ELIMINADO<br/>automático al remisionar:<br/>el PRE desaparece de todo<br/>el sistema activo"]
 ```
 
-**La clave anti-basura:** cerrar el código PRE **es un paso obligatorio del cierre del costeo**, no una tarea aparte que alguien puede olvidar. Y para lo que se escape, hay un vencimiento automático (sección 4).
+**La clave anti-basura:** el paso a **remisión es el punto final del código PRE**. Al remisionar, el código queda bloqueado (no se puede usar ni editar más) y se elimina automáticamente del sistema activo — no es una tarea aparte que alguien pueda olvidar. Para lo que nunca llegue a remisión (cotizaciones que se quedan a medias), hay un vencimiento automático (sección 3.3).
 
 ---
 
@@ -59,7 +60,7 @@ public class ProductoProvisional
     public string   NombreProducto { get; set; }
     public int      IdCotizacion { get; set; }           // dónde nació
     public int      IdCotizacionDetalle { get; set; }
-    public string   Estado { get; set; }                 // ACTIVO | CODIFICADO | CERRADO | VENCIDO
+    public string   Estado { get; set; }                 // ACTIVO | CODIFICADO | ELIMINADO | VENCIDO
     public DateTime FechaCreacion { get; set; }
     public DateTime? FechaCierre { get; set; }
     public int?     IdCodificacion { get; set; }         // si terminó CODIFICADO → FK al módulo Codificaciones
@@ -69,27 +70,28 @@ public class ProductoProvisional
 }
 ```
 
-### 3.3 Ciclo de vida (así se evita la basura)
+### 3.3 Ciclo de vida: la remisión es el punto final
 
 ```mermaid
 stateDiagram-v2
     [*] --> ACTIVO : cotización aprobada<br/>genera el PRE
-    ACTIVO --> CODIFICADO : al cerrar el costeo,<br/>"se seguirá manejando" →<br/>crea Codificacion real + mapeo
-    ACTIVO --> CERRADO : al cerrar el costeo,<br/>"compra puntual"
-    ACTIVO --> VENCIDO : job diario, sin movimiento<br/>en N días (config, ej. 30)
+    ACTIVO --> CODIFICADO : el producto se seguirá manejando →<br/>se codifica ANTES de remisionar<br/>(crea Codificacion real + mapeo)
+    ACTIVO --> ELIMINADO : al pasar a REMISIÓN<br/>(compra puntual, automático)
+    ACTIVO --> VENCIDO : job diario, sin movimiento<br/>en N días (la cotización nunca<br/>llegó a remisión)
     VENCIDO --> CODIFICADO : rescate manual
-    VENCIDO --> CERRADO : limpieza manual
+    VENCIDO --> ELIMINADO : limpieza manual
     CODIFICADO --> [*]
-    CERRADO --> [*]
+    ELIMINADO --> [*]
 ```
 
 Reglas:
 
-1. **Nunca se borra un PRE** — cotizaciones y OC históricas lo referencian. Solo cambia de estado.
-2. Un PRE en `CODIFICADO`, `CERRADO` o `VENCIDO` **no se puede usar** en documentos nuevos (validación en API).
-3. El cierre del costeo real (doc 03) **exige** resolver cada PRE de la cotización: codificarlo o cerrarlo. No se puede marcar `CosteoCompleto` con PRE activos.
-4. **Red de seguridad:** job diario (HostedService, mismo patrón de `WaReasignacionService`) marca como `VENCIDO` los PRE sin movimiento en N días, y una pestaña "Códigos provisionales" en Codificaciones lista los vencidos para limpieza.
-5. Al codificar, la **codificación definitiva usa el flujo que ya existe** en el módulo Codificaciones (`Por confirmar → Confirmado → Rechazado`) — no se inventa un flujo paralelo. El PRE guarda el mapeo hacia el código definitivo.
+1. **El paso a remisión cierra el PRE, siempre y automáticamente.** Al generar la remisión de la cotización: si el producto es de compra puntual, el PRE pasa a `ELIMINADO` sin intervención de nadie; si se va a seguir manejando, la remisión **exige** que ya esté codificado (validación bloqueante) y sale con el código definitivo.
+2. Después de remisionar **no se puede hacer nada más** con ese PRE: ni usarlo en documentos nuevos, ni editarlo, ni reactivarlo (validación en API).
+3. `ELIMINADO` se implementa como **borrado lógico**: el código desaparece de todas las búsquedas, listas y catálogos activos del sistema — para el usuario, se eliminó. La fila queda solo archivada internamente porque las cotizaciones y OC históricas la referencian y no pueden quedar apuntando al vacío.
+4. Un consecutivo PRE **nunca se reutiliza**, para que un documento viejo jamás muestre el producto equivocado.
+5. **Red de seguridad** para lo que nunca llegue a remisión: job diario (HostedService, mismo patrón de `WaReasignacionService`) marca como `VENCIDO` los PRE sin movimiento en N días, y una pestaña "Códigos provisionales" en Codificaciones lista los vencidos para codificarlos o eliminarlos manualmente.
+6. Al codificar, la **codificación definitiva usa el flujo que ya existe** en el módulo Codificaciones (`Por confirmar → Confirmado → Rechazado`) — no se inventa un flujo paralelo. El PRE guarda el mapeo hacia el código definitivo.
 
 ---
 
@@ -149,7 +151,7 @@ Campos nuevos en `CotizacionFactura` (doc 03): `OcrEstado`, `OcrJson` (resultado
 | `POST` | `/api/ProductoProvisional/generar` | Genera PRE para las líneas nuevas de una cotización aprobada (idempotente: no duplica) |
 | `GET` | `/api/ProductoProvisional?estado=ACTIVO` | Lista/filtra (para la pestaña de Codificaciones y el reporte de vencidos) |
 | `PUT` | `/api/ProductoProvisional/{id}/codificar` | Crea la `Codificacion` real (flujo existente) y guarda el mapeo |
-| `PUT` | `/api/ProductoProvisional/{id}/cerrar` | Cierre por compra puntual, con observación |
+| — | *(sin endpoint de cierre manual)* | La eliminación es **automática dentro de `RemisionService`**: al crear la remisión, los PRE puntuales pasan a `ELIMINADO` y los marcados "se seguirá manejando" bloquean la remisión si aún no están codificados |
 | `POST` | `/api/Cotizacion/{id}/facturas` | (doc 03) ahora además **dispara la lectura OCR** en segundo plano |
 | `GET` | `/api/Facturas/{id}/ocr` | Resultado de la lectura + validaciones + propuesta de matching |
 | `POST` | `/api/Facturas/{id}/aplicar-costeo` | Aplica los costos confirmados por el usuario al costeo real (doc 03) |
@@ -162,8 +164,9 @@ Servicio nuevo: `FacturaOcrService` (patrón de `WaBotClaudeService`: HttpClient
 
 1. **Al aprobar** una cotización con productos nuevos: aviso "Se generaron 2 códigos provisionales (PRE-26-00042, PRE-26-00043)".
 2. **En gestor de pedidos / OC / recepción**: chip naranja `PRE` junto al código, para que bodega sepa que es provisional.
-3. **En el dialog de costeo real** (doc 03): botón **"🤖 Leer factura"** → muestra lo extraído, los cruces propuestos (con confianza), el usuario confirma → costos reales pre-llenados → semáforo por línea → al guardar, exige resolver los PRE (codificar o cerrar).
-4. **En Codificaciones**: pestaña nueva "Códigos provisionales" con filtro por estado y el reporte de vencidos (la escoba para lo que se escape).
+3. **En el dialog de costeo real** (doc 03): botón **"🤖 Leer factura"** → muestra lo extraído, los cruces propuestos (con confianza), el usuario confirma → costos reales pre-llenados → semáforo por línea. Ahí mismo se marca si cada producto nuevo "se seguirá manejando" (para codificarlo antes de remisionar) o es compra puntual.
+4. **Al remisionar**: si hay PRE de productos que se seguirán manejando y aún no están codificados, la remisión se bloquea con el mensaje claro de qué falta; los puntuales se eliminan solos y la remisión sale limpia. Después de este punto el PRE ya no existe para el usuario.
+5. **En Codificaciones**: pestaña nueva "Códigos provisionales" con filtro por estado y el reporte de vencidos — solo para cotizaciones que nunca llegaron a remisión (la escoba para lo que se escape).
 
 ---
 
@@ -179,9 +182,15 @@ Dependencias: la entrega 5 requiere las entregas 1–2 del doc 03 (BD y API de c
 
 ---
 
-## 8. Decisiones que conviene confirmar antes de construir
+## 8. Decisiones
 
-1. **N días para vencer un PRE** sin movimiento (propuesta: 30, configurable).
+**Ya decidido:**
+
+- ✅ **El paso a remisión es el punto final del PRE**: al remisionar queda bloqueado, no se puede hacer nada más con él, y se elimina (borrado lógico automático; si el producto se seguirá manejando, debe codificarse antes de remisionar).
+
+**Por confirmar antes de construir:**
+
+1. **N días para vencer un PRE** de cotizaciones que nunca llegan a remisión (propuesta: 30, configurable).
 2. **Tolerancia del semáforo** (propuesta: ±3%, configurable).
 3. ¿La validación de inventario que dispara el PRE ocurre **al aprobar** la cotización o es un paso manual previo a la OC? (La propuesta asume automática al aprobar.)
 4. Costo por lectura OCR con Claude (centavos por factura) vs. digitación manual — la propuesta asume que el volumen lo justifica; si son muy pocas facturas al mes, la entrega 6 puede posponerse sin afectar las demás.
