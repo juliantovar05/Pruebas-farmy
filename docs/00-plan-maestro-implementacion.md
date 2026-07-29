@@ -143,7 +143,8 @@ flowchart TB
 | 5 | Código PRE + hook remisión | 2 días | 1, 2 |
 | 6 | OCR + semáforo | 3–4 días | 3, 5 |
 | 7 | Job vencidos + cierre | 1–2 días | 5 |
-| | **Total estimado** | **≈ 2,5–3 semanas** | |
+| 8 | Compra de emergencia sin ETL ([doc 05](05-compras-emergencia.md)) | 2–3 días | 5 (y 6 para regularización pre-llenada) |
+| | **Total estimado** | **≈ 3–3,5 semanas** | |
 
 Las entregas 3–4 y 5 pueden ir en paralelo si hay dos personas.
 
